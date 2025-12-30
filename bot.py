@@ -5,21 +5,16 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 from groq import Groq
 
-# ===== ENV VARIABLES =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ===== SAFETY CHECK =====
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN missing in Railway Variables")
-
+    raise RuntimeError("BOT_TOKEN missing")
 if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY missing in Railway Variables")
+    raise RuntimeError("GROQ_API_KEY missing")
 
-# ===== GROQ CLIENT =====
 client = Groq(api_key=GROQ_API_KEY)
 
-# ===== MESSAGE HANDLER =====
 async def reply_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg or not msg.text:
@@ -27,7 +22,6 @@ async def reply_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = msg.text.strip()
 
-    # Group: reply only if bot is mentioned
     if msg.chat.type in ["group", "supergroup"]:
         if context.bot.username.lower() not in text.lower():
             return
@@ -35,25 +29,17 @@ async def reply_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(random.randint(1, 2))
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama-3.1-8b-instant",   # ✅ FIXED MODEL
         messages=[
-            {
-                "role": "system",
-                "content": "You are a chill, friendly, human-like person. Keep replies short and natural."
-            },
-            {
-                "role": "user",
-                "content": text
-            }
+            {"role": "system", "content": "You are a chill, human-like friend. Short replies."},
+            {"role": "user", "content": text}
         ],
         temperature=0.8,
         max_tokens=80
     )
 
-    reply = response.choices[0].message.content.strip()
-    await msg.reply_text(reply)
+    await msg.reply_text(response.choices[0].message.content.strip())
 
-# ===== MAIN =====
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_ai))
