@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 from groq import Groq
 
 # ENV variables (Railway)
-BOT_TOKEN = os.getenv("8583192474:AAESPvmGIcu8iRLjrqRlgSFL7DsqrWzZ-Rk")
+BOT_TOKEN = os.getenv("8583192474:AAHP1s3tQs0e8sKSObvYHUYqBeJLRvRaQ28")
 GROQ_API_KEY = os.getenv("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")
 
 client = Groq(api_key=GROQ_API_KEY)
