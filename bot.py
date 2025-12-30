@@ -1,20 +1,18 @@
-import random
+import os
 import asyncio
+import random
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
+from groq import Groq
 
-BOT_TOKEN = "8583192474:AAESPvmGIcu8iRLjrqRlgSFL7DsqrWzZ-Rk"
-MODEL_NAME = "microsoft/DialoGPT-small"
+# ENV variables (Railway)
+BOT_TOKEN = os.getenv("8583192474:AAESPvmGIcu8iRLjrqRlgSFL7DsqrWzZ-Rk")
+GROQ_API_KEY = os.getenv("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")
 
-# Load AI model
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+client = Groq(api_key=GROQ_API_KEY)
 
 async def reply_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message  # ✅ SAFE message object
-
+    msg = update.effective_message
     if not msg or not msg.text:
         return
 
@@ -25,42 +23,31 @@ async def reply_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if context.bot.username.lower() not in text.lower():
             return
 
-    await asyncio.sleep(random.randint(1, 3))  # human delay
+    await asyncio.sleep(random.randint(1, 2))  # human delay
 
-    input_ids = tokenizer.encode(text + tokenizer.eos_token, return_tensors="pt")
-
-    output = model.generate(
-        input_ids,
-        max_length=120,
-        do_sample=True,
-        top_k=50,
-        top_p=0.95,
-        pad_token_id=tokenizer.eos_token_id
+    completion = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a chill, funny, human-like friend. Keep replies short and natural."
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ],
+        temperature=0.8,
+        max_tokens=80
     )
 
-    reply = tokenizer.decode(
-        output[:, input_ids.shape[-1]:][0],
-        skip_special_tokens=True
-    )
-
-    if not reply.strip():
-        reply = random.choice([
-            "Haha 😄",
-            "Interesting 👀",
-            "Arre bhai 😂",
-            "Samajh raha hoon 😌",
-            "Chill kar 😄"
-        ])
-
+    reply = completion.choices[0].message.content.strip()
     await msg.reply_text(reply)
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # ✅ TEXT only, safe handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_ai))
-
-    print("Human AI bot running on Railway...")
+    print("Groq AI bot running on Railway...")
     app.run_polling()
 
 if __name__ == "__main__":
