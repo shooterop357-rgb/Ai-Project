@@ -8,10 +8,16 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 MAIN_ADMIN = "5436530930"
-
-MAX_ATTACK_TIME = 300        # 5 min
-COOLDOWN_TIME = 1200         # 20 min
+MAX_ATTACK_TIME = 300     # 5 minutes
+COOLDOWN_TIME = 1200      # 20 minutes
 USERS_FILE = "users.json"
+
+# Pricing (edit later)
+PLANS = {
+    1: 100,
+    3: 150,
+    7: 300
+}
 
 # ================= STATE =================
 running = {}        # uid -> end_time
@@ -44,12 +50,38 @@ def expired(uid):
         return True
     return datetime.now() > datetime.fromisoformat(u["expires_at"])
 
+def remaining_days(uid):
+    if uid == MAIN_ADMIN:
+        return "Unlimited"
+    u = users.get(uid)
+    if not u:
+        return "Expired"
+    delta = datetime.fromisoformat(u["expires_at"]) - datetime.now()
+    return max(delta.days, 0)
+
 # ================= UI =================
-def menu(uid):
+def user_menu(uid):
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton("🚀 Attack", callback_data="attack"),
         InlineKeyboardButton("📞 Contact Admin", callback_data="contact"),
+        InlineKeyboardButton("👤 User Panel", callback_data="panel"),
+        InlineKeyboardButton("💳 Plans", callback_data="plans"),
+    )
+    if uid in running:
+        kb.add(InlineKeyboardButton("🛑 Stop Attack", callback_data="stop"))
+    return kb
+
+def admin_menu(uid):
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("🚀 Attack", callback_data="attack"),
+        InlineKeyboardButton("📞 Contact Admin", callback_data="contact"),
+        InlineKeyboardButton("👤 User Panel", callback_data="panel"),
+        InlineKeyboardButton("💳 Plans", callback_data="plans"),
+        InlineKeyboardButton("➕ Add User", callback_data="adduser"),
+        InlineKeyboardButton("➕ Add Admin", callback_data="addadmin"),
+        InlineKeyboardButton("➖ Remove User", callback_data="remove"),
     )
     if uid in running:
         kb.add(InlineKeyboardButton("🛑 Stop Attack", callback_data="stop"))
@@ -64,37 +96,58 @@ def end_chat_kb():
 @bot.callback_query_handler(func=lambda c: True)
 def callbacks(c):
     uid = str(c.message.chat.id)
+    r = role(uid)
+    menu = admin_menu(uid) if r == "main" else user_menu(uid)
 
     if c.data == "attack":
         if expired(uid):
             bot.answer_callback_query(c.id, "Plan expired. Contact admin.", show_alert=True)
             return
         awaiting.add(uid)
-        bot.edit_message_text(
-            "Enter:\n<code>IP PORT SECONDS</code>\nExample:\n<code>1.1.1.1 80 120</code>",
-            uid, c.message.message_id, reply_markup=menu(uid)
-        )
+        bot.send_message(uid, "📝 Enter:\n<code>IP PORT SECONDS</code>\nExample:\n<code>1.1.1.1 80 120</code>")
+        bot.send_message(uid, " ", reply_markup=menu)
 
     elif c.data == "contact":
         admin_chat.add(uid)
-        bot.edit_message_text(
-            "💬 <b>Admin chat enabled</b>\nType your message.",
-            uid, c.message.message_id, reply_markup=end_chat_kb()
-        )
+        bot.send_message(uid, "💬 <b>Admin chat enabled</b>\nType your message.")
+        bot.send_message(uid, " ", reply_markup=end_chat_kb())
 
     elif c.data == "endchat":
         admin_chat.discard(uid)
-        bot.edit_message_text(
-            "✅ <b>Admin chat closed</b>",
-            uid, c.message.message_id, reply_markup=menu(uid)
+        bot.send_message(uid, "✅ <b>Admin chat closed</b>")
+        bot.send_message(uid, " ", reply_markup=menu)
+
+    elif c.data == "panel":
+        bot.send_message(
+            uid,
+            f"👤 <b>User Panel</b>\n\n"
+            f"Role: <b>{r}</b>\n"
+            f"Remaining Days: <b>{remaining_days(uid)}</b>"
         )
+        bot.send_message(uid, " ", reply_markup=menu)
+
+    elif c.data == "plans":
+        text = "💳 <b>Available Plans</b>\n\n"
+        for d, p in PLANS.items():
+            text += f"{d} Day(s) – ₹{p}\n"
+        text += "\nContact admin to purchase."
+        bot.send_message(uid, text)
+        bot.send_message(uid, " ", reply_markup=menu)
 
     elif c.data == "stop":
         stop_attack(uid)
-        bot.edit_message_text(
-            "🛑 <b>Attack stopped</b>\n⏳ Cooldown started (20 min)",
-            uid, c.message.message_id, reply_markup=menu(uid)
-        )
+        bot.send_message(uid, "🛑 <b>Attack stopped</b>\n⏳ Cooldown started (20 min)")
+        bot.send_message(uid, " ", reply_markup=menu)
+
+    elif c.data in ("adduser", "addadmin", "remove"):
+        if uid != MAIN_ADMIN:
+            return
+        if c.data == "adduser":
+            bot.send_message(uid, "Usage:\n<code>/adduser USERID DAYS</code>\nDays: 1 / 3 / 7")
+        elif c.data == "addadmin":
+            bot.send_message(uid, "Usage:\n<code>/addadmin USERID DAYS</code>\nDays: 1 / 3 / 7")
+        elif c.data == "remove":
+            bot.send_message(uid, "Usage:\n<code>/remove USERID</code>")
 
 # ================= ADMIN CHAT =================
 @bot.message_handler(func=lambda m: str(m.chat.id) in admin_chat and str(m.chat.id) != MAIN_ADMIN)
@@ -119,53 +172,39 @@ def stop_attack(uid):
 @bot.message_handler(func=lambda m: str(m.chat.id) in awaiting)
 def receive_attack(m):
     uid = str(m.chat.id)
-
-    if uid in admin_chat:
-        return
-
     awaiting.discard(uid)
 
     if expired(uid):
-        bot.send_message(uid, "Plan expired.", reply_markup=menu(uid))
+        bot.send_message(uid, "Plan expired.")
         return
 
     if uid != MAIN_ADMIN:
         last = cooldown.get(uid)
         if last and time.time() - last < COOLDOWN_TIME:
-            bot.send_message(uid, "Next attack after 20 minutes.", reply_markup=menu(uid))
+            bot.send_message(uid, "Next attack after 20 minutes.")
             return
 
     try:
-        ip, port, sec = m.text.split()
+        _, _, sec = m.text.split()
         sec = int(sec)
         if sec > MAX_ATTACK_TIME:
             raise ValueError
     except:
-        bot.send_message(uid, "Invalid format.", reply_markup=menu(uid))
+        bot.send_message(uid, "Invalid format.")
         return
 
     end_time = time.time() + sec
-    with lock:
-        running[uid] = end_time
+    running[uid] = end_time
 
-    bot.send_message(
-        uid,
-        f"✅ <b>Attack started</b>\nTarget: {ip}\nTime: {sec}s",
-        reply_markup=menu(uid)
-    )
+    bot.send_message(uid, f"✅ <b>Attack started</b>\nTime: {sec}s")
 
     def finish():
         while time.time() < end_time:
             time.sleep(1)
-        with lock:
-            if uid in running:
-                running.pop(uid)
-                cooldown[uid] = time.time()
-        bot.send_message(
-            uid,
-            "✅ <b>Attack completed</b>\n⏳ Cooldown: 20 minutes",
-            reply_markup=menu(uid)
-        )
+        if uid in running:
+            running.pop(uid)
+            cooldown[uid] = time.time()
+            bot.send_message(uid, "✅ <b>Attack completed</b>\n⏳ Cooldown: 20 minutes")
 
     threading.Thread(target=finish, daemon=True).start()
 
@@ -177,23 +216,51 @@ def add_user(m):
     try:
         _, uid, days = m.text.split()
         days = int(days)
-        role = "admin" if m.text.startswith("/addadmin") else "user"
+        r = "admin" if m.text.startswith("/addadmin") else "user"
         exp = datetime.now() + timedelta(days=days)
-        users[uid] = {"role": role, "expires_at": exp.isoformat()}
+        users[uid] = {"role": r, "expires_at": exp.isoformat()}
         save_users(users)
-        bot.reply_to(m, f"✅ {role} added for {days} days")
+        bot.reply_to(m, f"✅ {r} {uid} added for {days} days")
     except:
         bot.reply_to(m, "Usage: /adduser <id> <days>")
+
+@bot.message_handler(commands=["remove"])
+def remove_user(m):
+    if str(m.chat.id) != MAIN_ADMIN:
+        return
+    try:
+        _, uid = m.text.split()
+        users.pop(uid, None)
+        save_users(users)
+        bot.reply_to(m, f"Removed {uid}")
+    except:
+        bot.reply_to(m, "Usage: /remove <id>")
 
 # ================= START =================
 @bot.message_handler(commands=["start"])
 def start(m):
     uid = str(m.chat.id)
-    bot.send_message(
-        uid,
-        "👋 <b>Welcome</b>\nChoose an option:",
-        reply_markup=menu(uid)
-    )
+    r = role(uid)
+    if uid == MAIN_ADMIN:
+        bot.send_message(uid, "👑 <b>Main Admin Detected</b>\nFull control enabled.")
+        bot.send_message(uid, " ", reply_markup=admin_menu(uid))
+    else:
+        bot.send_message(uid, "👋 <b>Welcome</b>\nChoose an option below")
+        bot.send_message(uid, " ", reply_markup=user_menu(uid))
+
+# ================= EXPIRY REMINDER =================
+def expiry_reminder():
+    while True:
+        for uid, u in users.items():
+            try:
+                exp = datetime.fromisoformat(u["expires_at"])
+                if 0 < (exp - datetime.now()).days == 1:
+                    bot.send_message(uid, "⏰ Your plan expires tomorrow. Contact admin for renewal.")
+            except:
+                pass
+        time.sleep(86400)
+
+threading.Thread(target=expiry_reminder, daemon=True).start()
 
 # ================= RUN =================
 while True:
